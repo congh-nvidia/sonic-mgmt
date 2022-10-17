@@ -106,8 +106,11 @@ config switch-hash global lag-hash \
 #### Show
 The following command shows switch hash global configuration:
 ```
-show ip interfaces loopback-action 
+show
+|--- switch-hash
+     |--- global
 ```
+     
 Example:
 ```
 root@sonic:/home/admin# show switch-hash global
@@ -182,13 +185,50 @@ The test will be supported on any topology
 
 ## Test cases
 
-### Test cases #1 - Verify when generic ecmp hash is configured, the traffic can be balanced accordingly.
+### Test cases #1 - Verify the default hash fields are ip_proto, src_ip, dst_ip, src_l4_port, dst_l4_port, inner_src_ip, inner_dst_ip.
+1. Get the default hash fields configration via cli "show switch-hash global"
+2. Check the default ecmp and lag hash fields are ip_proto, src_ip, dst_ip, src_l4_port, dst_l4_port, inner_src_ip, inner_dst_ip.
 
-### Test cases #2 - Verify when generic lag hash is configured, the traffic can be balanced accordingly.
+### Test cases #2 - Verify when generic ecmp hash is configured, the traffic can be balanced accordingly.
+1. The test is using the default links and routes in a community setup.
+2. Randomly select a hash field and configure it to the ecmp hash list via cli "config switch-hash global ecmp-hash".
+3. Configure the lag hash list to exclude the selected field in case the egress links are portchannels.
+4. Send traffic whose selected field is changing, from a downlink ptf to uplink destination via mutiple nexthops.
+5. Check the traffic is balanced between the nexthops.
+6. If the uplinks are portchannels with multiple members, check the traffic is not balanced between the members.
+7. Recover the hash configs to the default.
 
-### Test cases #3 - Verify when both generic ecmp/lag hash are configured, the traffic can be balanced accordingly.
+### Test cases #3 - Verify when generic lag hash is configured, the traffic can be balanced accordingly.
+1. The test is using the default links and routes in a community setup and only runs on setups which have multi-member portchannel uplinks.
+2. Randomly select a hash field and configure it to the lag hash list via cli "config switch-hash global lag-hash".
+3. Configure the ecmp hash list to exclude the selected field in case the uplink portchannels are in ecmp groups.
+4. Send traffic whose selected field is changing, from a downlink ptf to uplink destination via the portchannels.
+5. Check only one portchannel receives the traffic and the traffic is balanced between the members.
+6. Recover the hash configs to the default.
 
-### Test cases #4 - Verify the generic hash cannot be configured seccessfully with invalid arguments .
+### Test cases #4 - Verify when both generic ecmp/lag hash are configured with all the valid fields, the traffic can be balanced accordingly.
+1. The test is using the default links and routes in a community setup.
+2. Configure all the valid hash fields for the ecmp and lag hash.
+3. Randomly select one hash field for the test.
+4. Send traffic whose selected field is changing, from a downlink ptf to uplink destination.
+5. Check the traffc is balanced between all the egress physical ports.
+6. Recover the hash configs to the default.
 
-### Test cases #5 - Verify generic hash configuration persists after reboot(config reload, reboot, fast-reboot, warm-reboot).
+### Test cases #5 - Verify the generic hash cannot be configured seccessfully with invalid arguments.
+1. Configure the ecmp/lag hash with invalid fields list arguments.
+2. Check there is a cli error notify the user the the argument is invalid.
+3. Check the running config is not changed.
+4. The invalid arguments includes:
+  a. empty argument
+  b. single invalid field
+  c. invalid field(s) combined with valid field(s)
+5. Recover the hash configs to the default.
 
+### Test cases #6 - Verify generic hash running configuration persists after warm-reboot.
+1. The test is using the default links and routes in a community setup.
+2. Configure all the valid hash fields for the ecmp and lag hash.
+3. Randomly select one hash field for the test.
+4. Send traffic whose selected field is changing, from a downlink ptf to uplink destination.
+5. Do warm-reboot while sending the traffic.
+6. After the warm-reboot finished, check the traffc is balanced between all the egress physical ports and no traffic loss.
+7. Recover the hash configs to the default.
