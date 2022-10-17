@@ -35,12 +35,12 @@ GH provides global switch hash configuration for ECMP and LAG.
 #### This feature will provide error handling for the next situations:
 
 1. Frontend
-  Invalid parameter value
+  1.1 Invalid parameter value
 2. Backend
-  1. Missing parameters
-  2. Invalid parameter value
-  3. Parameter removal
-  4. Configuration removal
+  2.1 Missing parameters
+  2.2 Invalid parameter value
+  2.3 Parameter removal
+  2.4 Configuration removal
 
 ### Scope
 
