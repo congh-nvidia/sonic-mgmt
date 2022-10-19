@@ -193,7 +193,7 @@ The test will be supported on any topology
 1. The test is using the default links and routes in a community setup.
 2. Randomly select a hash field and configure it to the ecmp hash list via cli "config switch-hash global ecmp-hash".
 3. Configure the lag hash list to exclude the selected field in case the egress links are portchannels.
-4. Send traffic whose selected field is changing, from a downlink ptf to uplink destination via mutiple nexthops.
+4. Send traffic with changing selected field from a downlink ptf to uplink destination via multiple nexthops.
 5. Check the traffic is balanced between the nexthops.
 6. If the uplinks are portchannels with multiple members, check the traffic is not balanced between the members.
 7. Recover the hash configs to the default.
@@ -201,8 +201,8 @@ The test will be supported on any topology
 ### Test cases #3 - Verify when generic lag hash is configured, the traffic can be balanced accordingly.
 1. The test is using the default links and routes in a community setup and only runs on setups which have multi-member portchannel uplinks.
 2. Randomly select a hash field and configure it to the lag hash list via cli "config switch-hash global lag-hash".
-3. Configure the ecmp hash list to exclude the selected field in case the uplink portchannels are in ecmp groups.
-4. Send traffic whose selected field is changing, from a downlink ptf to uplink destination via the portchannels.
+3. Configure the ecmp hash list to exclude the selected field.
+4. Send traffic with changing selected field from a downlink ptf to uplink destination via the portchannels.
 5. Check only one portchannel receives the traffic and the traffic is balanced between the members.
 6. Recover the hash configs to the default.
 
@@ -210,7 +210,7 @@ The test will be supported on any topology
 1. The test is using the default links and routes in a community setup.
 2. Configure all the valid hash fields for the ecmp and lag hash.
 3. Randomly select one hash field for the test.
-4. Send traffic whose selected field is changing, from a downlink ptf to uplink destination.
+4. Send traffic with changing selected field from a downlink ptf to uplink destination.
 5. Check the traffc is balanced between all the egress physical ports.
 6. Recover the hash configs to the default.
 
@@ -224,11 +224,11 @@ The test will be supported on any topology
   c. invalid field(s) combined with valid field(s)
 5. Recover the hash configs to the default.
 
-### Test cases #6 - Verify generic hash running configuration persists after warm-reboot.
+### Test cases #6 - Verify generic hash running configuration persists after fast/warm reboot.
 1. The test is using the default links and routes in a community setup.
 2. Configure all the valid hash fields for the ecmp and lag hash.
 3. Randomly select one hash field for the test.
-4. Send traffic whose selected field is changing, from a downlink ptf to uplink destination.
-5. Do warm-reboot while sending the traffic.
-6. After the warm-reboot finished, check the traffc is balanced between all the egress physical ports and no traffic loss.
+4. Send traffic with changing selected field from a downlink ptf to uplink destination.
+5. Randomly do fast/warm reboot while sending the traffic.
+6. After the reboot finished, check the traffc is balanced between all the egress physical ports.
 7. Recover the hash configs to the default.
