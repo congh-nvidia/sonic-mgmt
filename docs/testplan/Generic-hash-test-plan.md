@@ -218,12 +218,14 @@ Note:
 
 ### Test cases #5 - Verify the generic hash cannot be configured seccessfully with invalid parameters.
 1. Configure the ecmp/lag hash with invalid fields list parameter.
-2. Check there is a cli error notifies the user the parameter is invalid.
-3. Check the running config is not changed.
-4. The invalid parameters to test:
+2. Check there is a cli error that notifies the user the parameter is invalid.
+3. Check there is a warning printed in the syslog.
+4. Check the running config is not changed.
+5. The invalid parameters to test:
   a. empty parameter
   b. single invalid field
   c. invalid fields combined with valid fields
+  d. duplicated valid fields(depends on the final implememtation)
 
 ### Test cases #6 - Verify when a generic hash config entry/parameter is removed, or updated with invalid values from configDB via redis cli, there will be warnings printed in the log.
 1. Config ecmp and lag hash via cli.
@@ -253,7 +255,7 @@ Note:
 10. Send the traffic again.
 11. Check the traffic is balanced over all uplink ports with no packet loss.
 
-### Test cases #8 - Verify generic hash works properly when there is lag member flaps.
+### Test cases #8 - Verify generic hash works properly when there are lag member flaps.
 1. The test is using the default links and routes in a community setup, and only runs on setups which have multi-member portchannel uplinks
 3. Configure all the valid hash fields for the ecmp and lag hash.
 4. Randomly select one hash field for the test.
