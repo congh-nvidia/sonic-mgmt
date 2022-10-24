@@ -44,7 +44,7 @@ GH provides global switch hash configuration for ECMP and LAG.
 
 ### Scope
 
-The test is to verify the hash configuration can be added/updated/removed by the generic hash, and the behavior of ECMP and lag hashing will change according to the generic hash config.   
+The test is to verify the hash configuration can be added/updated by the generic hash, and the behavior of ECMP and lag hashing will change according to the generic hash config.   
 
 ### Scale / Performance
 
@@ -268,7 +268,7 @@ Note:
 11. Send the traffic again.
 12. Check the traffic is balance over all uplink ports with no packet loss.
 
-### Test cases #9 - Verify generic hash running configuration persists after fast/warm reboot, and the saved configuration persists after code reboot.
+### Test cases #9 - Verify generic hash running configuration persists after fast/warm reboot, and the saved configuration persists after cold reboot.
 1. The test is using the default links and routes in a community setup.
 2. Configure all the valid hash fields for the ecmp and lag hash.
 3. Randomly select one hash field for the test.
