@@ -180,55 +180,100 @@ INNER_L4_SRC_PORT  INNER_L4_SRC_PORT
 }
 ```
 ### Supported topology
-The test will be supported on any topology
+The test will be supported on t0 and t1 topologies.
 
 
 ## Test cases
 
+Note: 
+  1. The hash field is randomly selected in the test cases, and in the first phase, the fields required by MSFT will be coverd in the cases - including ip_proto, dst ip, src ip, dst port, src port, inner dst ip, inner src ip. Other supported fields will be covered in the future.
+  2. IPv4 or IPv6 traffic is randomly selected in the test cases.
+
 ### Test cases #1 - Verify the default hash fields are ip_proto, src_ip, dst_ip, src_l4_port, dst_l4_port, inner_src_ip, inner_dst_ip.
 1. Get the default hash fields configration via cli "show switch-hash global"
 2. Check the default ecmp and lag hash fields are ip_proto, src_ip, dst_ip, src_l4_port, dst_l4_port, inner_src_ip, inner_dst_ip.
+* This case depends on the final implementation, if there is no default config of generic hash in configDB, remove this test case.
 
 ### Test cases #2 - Verify when generic ecmp hash is configured, the traffic can be balanced accordingly.
 1. The test is using the default links and routes in a community setup.
 2. Randomly select a hash field and configure it to the ecmp hash list via cli "config switch-hash global ecmp-hash".
 3. Configure the lag hash list to exclude the selected field in case the egress links are portchannels.
 4. Send traffic with changing selected field from a downlink ptf to uplink destination via multiple nexthops.
-5. Check the traffic is balanced between the nexthops.
-6. If the uplinks are portchannels with multiple members, check the traffic is not balanced between the members.
-7. Recover the hash configs to the default.
+5. Check the traffic is balanced over the nexthops.
+6. If the uplinks are portchannels with multiple members, check the traffic is not balanced over the members.
 
 ### Test cases #3 - Verify when generic lag hash is configured, the traffic can be balanced accordingly.
-1. The test is using the default links and routes in a community setup and only runs on setups which have multi-member portchannel uplinks.
+1. The test is using the default links and routes in a community setup, and only runs on setups which have multi-member portchannel uplinks.
 2. Randomly select a hash field and configure it to the lag hash list via cli "config switch-hash global lag-hash".
 3. Configure the ecmp hash list to exclude the selected field.
 4. Send traffic with changing selected field from a downlink ptf to uplink destination via the portchannels.
-5. Check only one portchannel receives the traffic and the traffic is balanced between the members.
-6. Recover the hash configs to the default.
+5. Check only one portchannel receives the traffic and the traffic is balanced over the members.
 
 ### Test cases #4 - Verify when both generic ecmp/lag hash are configured with all the valid fields, the traffic can be balanced accordingly.
 1. The test is using the default links and routes in a community setup.
 2. Configure all the valid hash fields for the ecmp and lag hash.
 3. Randomly select one hash field for the test.
 4. Send traffic with changing selected field from a downlink ptf to uplink destination.
-5. Check the traffc is balanced between all the egress physical ports.
-6. Recover the hash configs to the default.
+5. Check the traffc is balanced over all the uplink physical ports.
 
-### Test cases #5 - Verify the generic hash cannot be configured seccessfully with invalid arguments.
-1. Configure the ecmp/lag hash with invalid fields list arguments.
-2. Check there is a cli error notify the user the the argument is invalid.
+### Test cases #5 - Verify the generic hash cannot be configured seccessfully with invalid parameters.
+1. Configure the ecmp/lag hash with invalid fields list parameter.
+2. Check there is a cli error notifies the user the parameter is invalid.
 3. Check the running config is not changed.
-4. The invalid arguments includes:
-  a. empty argument
+4. The invalid parameters to test:
+  a. empty parameter
   b. single invalid field
-  c. invalid field(s) combined with valid field(s)
-5. Recover the hash configs to the default.
+  c. invalid fields combined with valid fields
 
-### Test cases #6 - Verify generic hash running configuration persists after fast/warm reboot.
+### Test cases #6 - Verify when a generic hash config entry/parameter is removed, or updated with invalid values from configDB via redis cli, there will be warnings printed in the log.
+1. Config ecmp and lag hash via cli.
+2. Remove the ecmp hash entry via redis cli.
+3. Check there is a warning printed in the log.
+4. Remove the lag hash entry via redis cli.
+5. Check there is a warning printed in the log.
+6. Re-config the ecmp and lag hash via cli.
+7. Update the ecmp hash fields with an invalid value via redis cli.
+8. Check there is a warning printed in the log.
+9. Update the lag hash fields with an invalid value via redis cli.
+10. Check there is a warning printed in the log.
+11. Re-config the ecmp and lag hash via cli.
+12. Remove the generic hash table via redis cli.
+13. Check there is a warning printed in the log.
+
+### Test cases #7 - Verify generic hash works properly when there are nexthop flaps.
 1. The test is using the default links and routes in a community setup.
 2. Configure all the valid hash fields for the ecmp and lag hash.
 3. Randomly select one hash field for the test.
 4. Send traffic with changing selected field from a downlink ptf to uplink destination.
-5. Randomly do fast/warm reboot while sending the traffic.
-6. After the reboot finished, check the traffc is balanced between all the egress physical ports.
-7. Recover the hash configs to the default.
+5. Check the traffic is balanced over all the uplink ports.
+6. Randomly shutdown 1 nexthop interface.
+7. Send the traffic again.
+8. Check the traffic is balanced over all remaining uplink ports with no packet loss.
+9. Recover the interface and do shutdown/startup on the interface 3 more times.
+10. Send the traffic again.
+11. Check the traffic is balanced over all uplink ports with no packet loss.
+
+### Test cases #8 - Verify generic hash works properly when there is lag member flaps.
+1. The test is using the default links and routes in a community setup, and only runs on setups which have multi-member portchannel uplinks
+3. Configure all the valid hash fields for the ecmp and lag hash.
+4. Randomly select one hash field for the test.
+5. Send traffic with changing selected field from a downlink ptf to uplink destination.
+6. Check the traffic is balanced over all the uplink ports.
+7. Randomly shutdown 1 member port in all uplink portchannels.
+8. Send the traffic again.
+9. Check the traffic is balance over all remaining uplink ports with no packet loss.
+10. Recover the members and do shutdown/startup on them 3 more times.
+11. Send the traffic again.
+12. Check the traffic is balance over all uplink ports with no packet loss.
+
+### Test cases #9 - Verify generic hash running configuration persists after fast/warm reboot, and the saved configuration persists after code reboot.
+1. The test is using the default links and routes in a community setup.
+2. Configure all the valid hash fields for the ecmp and lag hash.
+3. Randomly select one hash field for the test.
+4. Randomly select fast/warm/cold reboot for the test, if cold reboot, save the config before the reboot.
+5. Send traffic with changing selected field from a downlink ptf to uplink destination.
+6. Check the traffic is balance over all the uplink ports.
+7. Randomly do fast/warm/cold reboot.
+8. After the reboot, check the generic hash config via cli, it should keep the same as before the reboot.
+9. Send traffic again.
+10. Check the traffic is balance over all the uplink ports.
