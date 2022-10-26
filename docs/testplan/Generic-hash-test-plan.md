@@ -193,6 +193,7 @@ Note:
 1. Get the default hash fields configration via cli "show switch-hash global"
 2. Check the default ecmp and lag hash fields are ip_proto, src_ip, dst_ip, src_l4_port, dst_l4_port, inner_src_ip, inner_dst_ip.
 * This case depends on the final implementation, if there is no default config of generic hash in configDB, remove this test case.
+* If there is a cli to get the hw capabilities, verify the cli in this case.
 
 ### Test cases #2 - Verify when generic ecmp hash is configured, the traffic can be balanced accordingly.
 1. The test is using the default links and routes in a community setup.
