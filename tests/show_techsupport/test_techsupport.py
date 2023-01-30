@@ -275,6 +275,31 @@ def execute_command(duthost, since):
     return True
 
 
+@pytest.fixture(autouse=True)
+def ignore_expected_loganalyzer_exceptions(enum_rand_one_per_hwsku_frontend_hostname, loganalyzer):
+    """
+        In Mellanox, when techsupport is taken, it invokes fw dump.
+        While taking the fw dump, the fw is busy and doesn't respond to other calls.
+        The access of sfp eeprom happens through firmware and xcvrd gets the DOM fields
+        every 60 seconds which fails during the fw dump.
+        This is a temporary issue and this log can be ignored. 
+        Issue link: https://github.com/sonic-net/sonic-buildimage/issues/12621
+    """
+    ignoreRegex = [
+        ".*ERR kernel:.*Reg cmd access status failed.*",
+        ".*ERR kernel:.*Reg cmd access failed.*",
+        ".*ERR kernel:.*Eeprom query failed.*",
+        ".*ERR kernel:.*Fails to access.*register MCIA.*",
+        ".*ERR kernel:.*Fails to read module eeprom.*",
+        ".*ERR kernel:.*Fails to access.*module eeprom.*",
+        ".*ERR kernel:.*Fails to get module type.*",
+        ".*ERR pmon#xcvrd:.*Failed to read sfp.*"
+    ]
+
+    if loganalyzer:
+        loganalyzer[enum_rand_one_per_hwsku_frontend_hostname].ignore_regex.extend(ignoreRegex)
+
+
 def test_techsupport(request, config, duthosts, enum_rand_one_per_hwsku_frontend_hostname):
     """
     test the "show techsupport" command in a loop
@@ -355,10 +380,10 @@ def commands_to_check(duthosts, enum_rand_one_per_hwsku_frontend_hostname):
         "show_platform_cmds": cmds.show_platform_cmds,
         "ip_cmds": cmds.ip_cmds,
         "bridge_cmds": cmds.bridge_cmds,
-        "frr_cmds": add_asic_arg("  -n  {}", cmds.frr_cmds, num),
-        "bgp_cmds": add_asic_arg("  -n  {}", cmds.bgp_cmds, num),
+        "frr_cmds": add_asic_arg(" -n {}", cmds.frr_cmds, num),
+        "bgp_cmds": add_asic_arg(" -n {}", cmds.bgp_cmds, num),
         "nat_cmds": cmds.nat_cmds,
-        "bfd_cmds": add_asic_arg("  -n  {}", cmds.bfd_cmds, num),
+        "bfd_cmds": add_asic_arg(" -n {}", cmds.bfd_cmds, num),
         "redis_db_cmds": add_asic_arg("asic{} ", cmds.redis_db_cmds, num),
         "docker_cmds": add_asic_arg("{}", cmds.docker_cmds_201911 if '201911' in duthost.os_version else cmds.docker_cmds, num),
         "misc_show_cmds": add_asic_arg("asic{} ", cmds.misc_show_cmds, num),
@@ -374,7 +399,8 @@ def commands_to_check(duthosts, enum_rand_one_per_hwsku_frontend_hostname):
                     add_asic_arg("{}", cmds.broadcom_cmd_misc, num),
             }
         )
-        if duthost.facts["platform"] in ['x86_64-cel_e1031-r0']:
+        if duthost.facts["platform"] in ['x86_64-cel_e1031-r0',
+                                         'x86_64-arista_720dt_48s']:
             cmds_to_check.update(
                 {
                     "copy_config_cmds":
