@@ -48,13 +48,13 @@ GH provides global switch hash configuration for ECMP and LAG.
 
 The test is to verify the hash configuration can be added/updated by the generic hash, and the ECMP and lag hash behavior will change according to the generic hash configurations.   
 
-## 4. Scale / Performance
+### 3.1 Scale / Performance
 
 No scale or performance test related
 
-## 5. CLI commands
+### 3.2 CLI commands
 
-### 5.1 Config
+#### 3.2.1 Config
 The following command can be used to configure generic hash:
 ```
 config
@@ -105,7 +105,7 @@ config switch-hash global lag-hash \
 'INNER_L4_SRC_PORT'
 ```
 
-### 5.2 Show
+#### 3.2.2 Show
 The following command shows switch hash global configuration:
 ```
 show
@@ -163,7 +163,7 @@ INNER_L4_DST_PORT  INNER_L4_DST_PORT
 INNER_L4_SRC_PORT  INNER_L4_SRC_PORT
 ```
 
-### 6. DUT related configuration in config_db
+### 3.3 DUT related configuration in config_db
 
 ```
 {
@@ -209,15 +209,17 @@ INNER_L4_SRC_PORT  INNER_L4_SRC_PORT
     }
 }
 ```
-### Supported topology
+### 3.4 Supported topology
 The test supports t0 and t1 topologies, not supports dualtor topology.
 
 
-## Test cases
+## 4. Test cases
 
-Note: 
-  1. The hash field is randomly selected in the test cases, and in the first phase, the fields required by MSFT will be coverd in the cases - including ip protocol, dst ip, src ip, dst port, src port, inner dst ip, inner src ip. Other supported fields will be covered in the future.
-  2. IPv4 or IPv6 traffic is randomly selected in the test cases.
+Notes: 
+  1. The hash field is randomly selected in the test cases. Currently these fields are tested: 'IN_PORT', 'SRC_MAC', 'DST_MAC', 'ETHERTYPE', 'VLAN_ID', 'IP_PROTOCOL', 'SRC_IP', 'DST_IP', 'L4_SRC_PORT', 'L4_DST_PORT', 'INNER_SRC_IP', 'INNER_DST_IP'.
+  2. DST_MAC, ETHERTYPE, VLAN_ID fields are only tested in lag hash test cases, because L2 traffic is needed to test these fields, and there is no ecmp hash when switching in L2.
+  3. IPv4 and IPv6 are covered in the test, but the versions(including the inner version when testing the inner fields) are randomly selected in the test cases.
+  4. For the inner fields, three types of encapsulations are covered: IPinIP, VxLAN and NVGRE. For the VxLAN packet, the default port 4789 and a custom port 13330 are covered in the test.
 
 ### Test cases #1 - Verify the “show switch-hash capabilities” gets the supported hash fields.
 1. Get the supported hash fields via cli "show switch-hash capabilities"
@@ -235,8 +237,9 @@ Note:
 1. The test is using the default links and routes in a t0/t1 testbed, and only runs on setups which have multi-member portchannel uplinks.
 2. Randomly select a hash field and configure it to the lag hash list via cli "config switch-hash global lag-hash".
 3. Configure the ecmp hash list to exclude the selected field to verify the ecmp hash does not affect the hash result.
-4. Send traffic with changing values of the field under test from a downlink ptf port to uplink destination via the portchannels.
-5. Check the traffic is forwarded through only one portchannel is balanced over the members.
+4. If the hash field is DST_MAC, ETHERTYPE or VLAN_ID, change the topology to allow L2 switching and send L2 traffic in the next step.
+5. Send traffic with changing values of the field under test from a downlink ptf port to uplink destination via the portchannels.
+6. Check the traffic is forwarded through only one portchannel is balanced over the members.
 
 ### Test cases #4 - Verify when both generic ecmp and lag hash are configured with all the valid fields, the traffic can be balanced accordingly.
 1. The test is using the default links and routes in a t0/t1 testbed.
@@ -245,7 +248,46 @@ Note:
 4. Send traffic with changing values of the field under test from a downlink ptf port to uplink destination.
 5. Check the traffc is balanced over all the uplink physical ports.
 
-### Test cases #5 - Verify the generic hash cannot be configured seccessfully with invalid parameters.
+### Test cases #5 - Verify generic hash works properly when there are nexthop flaps.
+1. The test is using the default links and routes in a t0/t1 testbed.
+2. Configure all the supported hash fields for the ecmp and lag hash.
+3. Randomly select one hash field to test.
+4. Send traffic with changing values of the field under test from a downlink ptf port to uplink destination.
+5. Check the traffic is balanced over all the uplink ports.
+6. Randomly shutdown 1 nexthop interface.
+7. Send the traffic again.
+8. Check the traffic is balanced over all remaining uplink ports with no packet loss.
+9. Recover the interface and do shutdown/startup on the interface 3 more times.
+10. Send the traffic again.
+11. Check the traffic is balanced over all uplink ports with no packet loss.
+
+### Test cases #6 - Verify generic hash works properly when there are lag member flaps.
+1. The test is using the default links and routes in a t0/t1 testbed, and only runs on setups which have multi-member portchannel uplinks
+3. Configure all the supported hash fields for the ecmp and lag hash.
+4. Randomly select one hash field to test.
+5. If the hash field is DST_MAC, ETHERTYPE or VLAN_ID, change the topology to allow L2 switching and send L2 traffic in the next step.
+6. Send traffic with changing values of the field under test from a downlink ptf port to uplink destination.
+7. Check the traffic is balanced over all the uplink ports.
+8. Randomly shutdown 1 member port in all uplink portchannels.
+9. Send the traffic again.
+10. Check the traffic is balance over all remaining uplink ports with no packet loss.
+11. Recover the members and do shutdown/startup on them 3 more times.
+12. Send the traffic again.
+13. Check the traffic is balance over all uplink ports with no packet loss.
+
+### Test cases #7 - Verify generic hash running configuration persists after fast/warm reboot, and the saved configuration persists after cold reboot.
+1. The test is using the default links and routes in a t0/t1 testbed.
+2. Configure all the supported hash fields for the ecmp and lag hash.
+3. Randomly select one hash field to test.
+4. Randomly select a reboot type from fast/warm/cold reboot, if cold reboot, save the config before the reboot.
+5. Send traffic with changing values of the field under test from a downlink ptf port to uplink destination.
+6. Check the traffic is balance over all the uplink ports.
+7. Randomly do fast/warm/cold reboot.
+8. After the reboot, check the generic hash config via cli, it should keep the same as before the reboot.
+9. Send traffic again.
+10. Check the traffic is balance over all the uplink ports.
+
+### Test cases #8 - Verify the generic hash cannot be configured successfully with invalid parameters.
 1. Configure the ecmp/lag hash with invalid fields list parameter.
 2. Check there is a cli error that notifies the user the parameter is invalid.
 3. Check there is a warning printed in the syslog.
@@ -256,7 +298,7 @@ Note:
   c. invalid fields combined with valid fields
   d. duplicated valid fields(depends on the final implememtation)
 
-### Test cases #6 - Verify when a generic hash config key is removed, or updated with invalid values from config_DB via redis cli, there will be warnings printed in the log.
+### Test cases #9 - Verify when a generic hash config key is removed, or updated with invalid values from config_DB via redis cli, there will be warnings printed in the log.
 1. Config ecmp and lag hash via cli.
 2. Remove the ecmp hash key via redis cli.
 3. Check there is a warning printed in the log.
@@ -270,41 +312,3 @@ Note:
 11. Re-config the ecmp and lag hash via cli.
 12. Remove the generic hash key via redis cli.
 13. Check there is a warning printed in the log.
-
-### Test cases #7 - Verify generic hash works properly when there are nexthop flaps.
-1. The test is using the default links and routes in a t0/t1 testbed.
-2. Configure all the supported hash fields for the ecmp and lag hash.
-3. Randomly select one hash field to test.
-4. Send traffic with changing values of the field under test from a downlink ptf port to uplink destination.
-5. Check the traffic is balanced over all the uplink ports.
-6. Randomly shutdown 1 nexthop interface.
-7. Send the traffic again.
-8. Check the traffic is balanced over all remaining uplink ports with no packet loss.
-9. Recover the interface and do shutdown/startup on the interface 3 more times.
-10. Send the traffic again.
-11. Check the traffic is balanced over all uplink ports with no packet loss.
-
-### Test cases #8 - Verify generic hash works properly when there are lag member flaps.
-1. The test is using the default links and routes in a t0/t1 testbed, and only runs on setups which have multi-member portchannel uplinks
-3. Configure all the supported hash fields for the ecmp and lag hash.
-4. Randomly select one hash field to test.
-5. Send traffic with changing values of the field under test from a downlink ptf port to uplink destination.
-6. Check the traffic is balanced over all the uplink ports.
-7. Randomly shutdown 1 member port in all uplink portchannels.
-8. Send the traffic again.
-9. Check the traffic is balance over all remaining uplink ports with no packet loss.
-10. Recover the members and do shutdown/startup on them 3 more times.
-11. Send the traffic again.
-12. Check the traffic is balance over all uplink ports with no packet loss.
-
-### Test cases #9 - Verify generic hash running configuration persists after fast/warm reboot, and the saved configuration persists after cold reboot.
-1. The test is using the default links and routes in a t0/t1 testbed.
-2. Configure all the supported hash fields for the ecmp and lag hash.
-3. Randomly select one hash field to test.
-4. Randomly select a reboot type from fast/warm/cold reboot, if cold reboot, save the config before the reboot.
-5. Send traffic with changing values of the field under test from a downlink ptf port to uplink destination.
-6. Check the traffic is balance over all the uplink ports.
-7. Randomly do fast/warm/cold reboot.
-8. After the reboot, check the generic hash config via cli, it should keep the same as before the reboot.
-9. Send traffic again.
-10. Check the traffic is balance over all the uplink ports.
