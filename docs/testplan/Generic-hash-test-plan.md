@@ -30,7 +30,7 @@ GH provides global switch hash configuration for ECMP and LAG.
 ### 2.2 This feature will support the following commands:
 
 1. config: set switch hash global configuration
-2. show: display switch hash global configuration
+2. show: display switch hash global configuration or capabilities
 
 ### 2.3 This feature will provide error handling for the next situations:
 
