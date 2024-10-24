@@ -62,6 +62,7 @@ Verify PA validation and offloading works on a single DPU.
 Verify there is no conflict of pa validation configurations among multiple DPUs.
 #### Test steps
 * Apply the same Private link configuration as DPU0 on DPU1 only with a different ENI - ENI1.
+* Check on the switch that there are egress ACL tables attached to the DPU0 and DPU1 ports and contains the rules for pa validation.
 * Send the ENI0 outbound packet with matched underlay source IP address from ptf to the smartswitch.
 * Send the ENI1 outbound packet with matched underlay source IP address from ptf to the smartswitch.
 * Verify the packets of ENI0 and ENI1 are both received by the ptf.
