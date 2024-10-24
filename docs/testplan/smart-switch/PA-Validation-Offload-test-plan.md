@@ -53,8 +53,9 @@ Verify PA validation and offloading works on a single DPU.
 * Verify the packet is received by the ptf.
 * Remove the newly added pa validation entry.
 * Check the the new ACL rule is removed.
-* Send the unmatched packet again.
-* Verify no packet is received by the ptf.
+* Send the matched and unmatched packets again.
+* Verify the pa matched packet is received by the ptf.
+* Verify the pa unmatched packet is not received by the ptf.
 
 ### Test case # 2 – PA validation multiple DPUs
 #### Test objective
