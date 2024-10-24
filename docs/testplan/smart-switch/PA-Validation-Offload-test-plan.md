@@ -10,13 +10,14 @@
 * [Open questions](#Open%20questions)
 
 ## Overview
-The purpose is to test the functionality of PA Validation offloading on the SONIC SmartSwitch DUT.
+The purpose is to test the functionality of PA Validation offload feature on the SONIC SmartSwitch DUT.
 
 Feature HLD: https://github.com/Yakiv-Huryk/SONiC/blob/pa_validation_offload_update/doc/smart-switch/PA-Validation/SmartSwitchPAValidationOffload.md
 
 ### Scope
-For the inbound traffic, the pa validation is implicitly done by the DASH pipeline in DPU. The pa validation of inbound traffic is not offloaded to the NPU, and the verification is covered by the DASH vnet-to-vent test, so it is not in scope of this test plan.
-For the outbound traffic, the pa validation is offloaded to the switch. This test is targeting to verify the outbound pa validation works functionality.
+Currently, there is already an implicit pa validation in the DASH pipeline for the inbound traffic, which is handled in the DPU. This will keep the same as it is and the verification is covered by the DASH vnet-to-vent test, which is not in scope of this test plan.
+The pa validation offload feature will support the validation for traffic of all directions(inbound and outbound), and the validation is done on the switch side.
+This test is targeting to verify the outbound pa validation offload functionality works as expected.
 No scale and performance tests.
 
 ### Testbed
