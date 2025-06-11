@@ -63,8 +63,39 @@ Configuration example for the DASH_ENI_FORWARD_TABLE:
 #### Test objective
 This is the basic test for PL inbound and outbound packets validation. Migrate this test case to ENI based fowarding.
 #### Test steps
-* Update the APPLIANCE_VIP to the NPU Loopback0 IP address.
-*
+* Update the APPLIANCE_VIP to the NPU VIP(switch Loopback0 IP).
+* Update the outer IP dst of the inbound/outbound sent packets to the NPU VIP.
+* Add the configuration for DASH_ENI_FORWARD_TABLE according to the existing dash config.  
+* Add a step to check the ACL rules, there should be an flag to enable this check. It's enabled by default.
+  * Check the ACL rules for the tested ENI are generated: totally 4 rules - 2 (inbound and outbound) * 2 (with/without Tunnel Termination)
+  * Check the ACL rules are correct.
+* Keep the other steps unchanged.
+
+### Test case # 2 – test_privatelink_standby_eni_encap
+#### Test objective
+This is to validate when the PL packets land on NPU which has the currrent ENI as standby ENI, the packets should be double encaped and sent to the NPU-NPU tunnel.
+#### Test steps
+* Apply the basic PL dash configrations which is migrated to ENI based forwarding.
+* Apply the config for the NPU-NPU tunnel.(how?)
+* Change the tested ENI to standby on the dut.(how?)
+* Send inbound/outbound packets with dst IP of NPU VIP
+* Check the packet is sent out through the tunnel.
+* Check the received packets has double encaped vxlan header and the src mac/ip are the dut and the dst mac/ip are the HA peer NPU.
+* Check the tunnel termination flag is set in the out most vxlan header.
+* Check the inner inbound/outbound packets are not changed.
+
+### Test case # 3 – test_privatelink_tunnel_termination
+#### Test objective
+This is to validate when the double encaped PL packets land on NPU, the tunnel is terminated, and packets are decaped and sent to the local nexthop(DPU).
+#### Test steps
+* Apply the basic PL dash configrations which is migrated to ENI based forwarding.
+* Apply the config for the NPU-NPU tunnel.(how?)
+* Set the tested ENI to active on the dut.(how?)
+* Send double encaped inbound/outbound packets to the NPU.
+* The dst IP of the original PL outer header should be NPU VIP.
+* The dst mac/ip of the out most vxlan header should be the dut, the tunnel termination flag should be set.
+* Check the inbound/outbound packets are fowarded by the dpu and can be received by ptf.
+* Check the received packets are as expected after PL transform.
 
 ## TODO
 
