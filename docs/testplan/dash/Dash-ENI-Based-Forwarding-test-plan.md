@@ -40,7 +40,7 @@ The full tests for ENI Based Forwarding feature should include three parts:
 The configration is not persistent, it disappears after reload/reboot. So, the reload/reboot test is not in the scope.
 
 ### Testbed
-The test will run on a single dut Smartswitch testbed.
+The test will run on a single dut Smartswitch light mode testbed. 
 
 ### Setup configuration
 Until HaMgrd is available, we can only write configuration to the DASH_ENI_FORWARD_TABLE.  
@@ -52,7 +52,7 @@ Common tests configuration:
 Common tests cleanup:
 - Remove the basic PL link configuration
 
-We need apply the config in DPU_TABLE and VIP_TABLE via swssconig.
+We need apply the config in DPU_TABLE and VIP_TABLE into config_db.
 Example:
 ```
 [​
@@ -70,20 +70,18 @@ Example:
                   "pa_ipv4": "10.0.0.79",
                   "npu_ipv4": "10.1.0.32"
             }
-        },
-        "OP": "SET"​
     },
     {
         "VIP_TABLE": {
            "10.2.0.1/32" : {}
-        },
-        "OP": "SET"​
-    }
+        }
+    },
+**add the tunnel configration**
 [
 ```
 
 The hamgrd should generate the entry in DASH_ENI_FORWARD_TABLE based on the above configuration.
-But before this function is fully implemented in hamgrd, we need to apply the DASH_ENI_FORWARD_TABLE via swssconfig.
+But before this function is fully implemented in hamgrd, we need to apply the DASH_ENI_FORWARD_TABLE via swssconfig to the appl_db.
 Example:
 ```
 [​
@@ -92,7 +90,7 @@ Example:
         {
             "vdpu_ids": "1,2",
             "primary_vdpu": "1",
-            "outbound_vni": "1000",
+            "outbound_vni": "1000", - can be expicitly assigned or not set, we need paramtized test cases to cover both scenarios.
             "outbound_eni_mac_lookup": ""
         },​
         "OP": "SET"​
@@ -109,9 +107,9 @@ The outbound_eni_mac_lookup is used to decide whether we lookup the src mac or d
 #### Test objective
 This is the basic test for PL inbound and outbound packets validation. Migrate this test case to ENI based fowarding.
 #### Test steps
-* Update the APPLIANCE_VIP to the NPU VIP(switch Loopback0 IP).
+* Update the APPLIANCE_VIP to the NPU VIP(switch Loopback? IP).
 * Update the outer IP dst of the inbound/outbound sent packets to the NPU VIP.
-* Apply the configuration for DPU_TABLE, VIP_TABLE, and DASH_ENI_FORWARD_TABLE according to the existing dash config.
+* Apply the configuration for DPU_TABLE, VIP_TABLE, (tunnel/VNET) and DASH_ENI_FORWARD_TABLE according to the existing dash config.
 * The tested ENI should be active(local DPU is primary).
 * Add a step to check the ACL rules, there should be an flag to enable this check. It's enabled by default.
   * Check the ACL rules for the tested ENI are generated: totally 4 rules - 2 (inbound and outbound) * 2 (with/without Tunnel Termination)
@@ -120,16 +118,14 @@ This is the basic test for PL inbound and outbound packets validation. Migrate t
 
 ### Test case # 2 – test_privatelink_standby_eni_encap
 #### Test objective
-This is to validate when the PL packets land on NPU which has the currrent ENI as standby ENI, the packets should be double encaped and sent to the NPU-NPU tunnel.
+This is to validate when the PL packets land on NPU which has the tested ENI as standby ENI, the packets should be double encaped and sent to the NPU-NPU tunnel.
 #### Test steps
 * Apply the basic PL dash configrations which is migrated to ENI based forwarding.
-* Apply the configuration for DPU_TABLE, VIP_TABLE, and DASH_ENI_FORWARD_TABLE according to the existing dash config.
+* Apply the configuration for DPU_TABLE, VIP_TABLE, (tunnel/VNET) and DASH_ENI_FORWARD_TABLE according to the existing dash config.
 * The tested ENI should be standby(cluster DPU is primary).
-* Apply the config for the NPU-NPU tunnel.(how?)
 * Send inbound/outbound packets with dst IP of NPU VIP
 * Check the packet is sent out through the tunnel.
-* Check the received packets has double encaped vxlan header and the src mac/ip are the dut and the dst mac/ip are the HA peer NPU.
-* Check the tunnel termination flag is set in the out most vxlan header.(?)
+* Check the received packets has double encaped vxlan header and the src mac/ip are the dut and the dst mac/ip are the HA peer NPU.(Re-phrase this)
 * Check the inner inbound/outbound packets are not changed.
 
 ### Test case # 3 – test_privatelink_tunnel_termination
@@ -137,20 +133,18 @@ This is to validate when the PL packets land on NPU which has the currrent ENI a
 This is to validate when the double encaped PL packets land on NPU, the tunnel is terminated, and packets are decaped and sent to the local nexthop(DPU).
 #### Test steps
 * Apply the basic PL dash configrations which is migrated to ENI based forwarding.
-* Apply the configuration for DPU_TABLE, VIP_TABLE, and DASH_ENI_FORWARD_TABLE according to the existing dash config.
+* Apply the configuration for DPU_TABLE, VIP_TABLE, (tunnel/VNET) and DASH_ENI_FORWARD_TABLE according to the existing dash config.
 * The tested ENI should be active(local DPU is primary).
-* Apply the config for the NPU-NPU tunnel.(how?)
 * Send double encaped inbound/outbound packets to the NPU.
 * The dst IP of the original PL outer header should be NPU VIP.
-* The dst mac/ip of the out most vxlan header should be the dut, the tunnel termination flag should be set.
-* Check no double encaped vxlan packet is received by the ptf.
+* The dst mac/ip of the out most vxlan header should be the dut.
+* Check no double encaped vxlan packet is sent out by the dut and received by the ptf.
 * Check the inbound/outbound packets are fowarded by the dpu and can be received by ptf.
 * Check the received packets are as expected after PL transform.
 * Change The tested ENI to be standby(cluster DPU is primary).
-* Repeat the steps for standby ENI, exactly the same results are expected.
+* Repeat the steps for active ENI, exactly the same results are expected.
 
 ## TODO
-* Remove the steps to config DASH_ENI_FORWARD_TABLE when the hamgrd is capable of handling this.
-* Add tests for the phase 2 with bfd suppored. (Probably this will be covered in HA test.)
+
 
 ## Open questions
