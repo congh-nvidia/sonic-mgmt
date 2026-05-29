@@ -3837,8 +3837,10 @@ ospf:
 override_config_table/test_override_config_table.py:
   skip:
     reason: "Skip on multi-asic platforms as test provided golden config format is not compatible with multi-asics."
+    conditions_logical_operator: or
     conditions:
       - "is_multi_asic==True"
+      - "is_smartswitch==True and https://github.com/sonic-net/sonic-mgmt/issues/24983"
 
 override_config_table/test_override_config_table.py::test_load_minigraph_with_golden_config:
   skip:
