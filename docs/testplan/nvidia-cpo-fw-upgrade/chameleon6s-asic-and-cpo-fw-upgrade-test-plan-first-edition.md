@@ -12,6 +12,7 @@ HLD: https://github.com/nvidia-sonic/SONiC/blob/e43e25e6c90b09972c11062ef372c0a1
 - [References](#references)
 - [Testbed and topology](#testbed-and-topology)
 - [Prerequisites / setup](#prerequisites--setup)
+- [Command validation system](#command-validation-system)
 - [Module prerequisites](#module-prerequisites)
 - [Test cases](#test-cases)
 - [Conventions](#conventions)
@@ -25,388 +26,263 @@ HLD: https://github.com/nvidia-sonic/SONiC/blob/e43e25e6c90b09972c11062ef372c0a1
 
 | Shortcut | Meaning |
 |----------|---------|
-| HLD | Design linked above |
-| TC | Test case |
-| PRE | Readiness gate |
+| HLD | Design linked above, Rev 1.1 |
+| QG | Quality guarantees workbook for vModule auto firmware upgrade |
 | OE | Optical engine firmware, component `OE_FW` |
-| MFA | Combined ASIC and optical-engine firmware archive |
+| MFA | Combined ASIC and optical-engine firmware archive shipped in the image |
 | CPO | Co-packaged optics platform, Chameleon6S / SPC6 |
-| ASIC | Switch ASIC that stores `OE_FW` for the optical engines behind it |
 | DUT | Device under test |
 
 ## The core idea (mental model)
 
-An existing SONiC-to-SONiC install or ONIE install is the only stimulus. After the reboot that install already performs, optical-engine firmware on a CPO switch matches the image, stays put when the policy file is present, or stays absent on a non-CPO switch. `syncd` still starts.
+Two existing install paths already burn firmware when the image firmware differs. A later sanity check reads the versions. One new install, using another flavor of the same image such as PRC, proves the burn does not run when the firmware matches.
 
 ```
-install (sonic-installer | onie-nos-install) -> reboot -> OE_FW ACTUAL + syncd + syslog
+test_deploy_and_upgrade (sonic | onie, firmware differs) -> test_component_version_check
+new same-firmware flavor install -> status up to date, no flash write
 ```
 
 ## Test case summary & coverage
 
-Nine cases. P0 is the readiness read. P1 is one SONiC install pair plus the policy file and the log check. Each P2 case is another install and runs weekly.
+Three cases. P0 is a skip gate and stays under 2 minutes. P1 is two full installs: the regression deploy the lab already runs, plus one extra install of the same-firmware flavor. Each install can spend 600 seconds waiting for SSH to drop and 600 seconds waiting for SSH to return, then docker readiness. Expect P0+P1 to take longer than 30 minutes. That time is the existing regression install plus one extra install.
 
-| TC | What it proves (plain language) | Pri | QG area | HLD § |
-|----|---------------------------------|-----|---------|-------|
-| TC-PRE-01 — CPO install baseline is recorded | CPO DUT exposes `OE_FW` before any install | P0 | PRE fixture (scope: module) | §2.13, AF-10 |
-| TC-SONIC-01 — SONiC install converges OE firmware | SONiC-to-SONiC install applies an OE delta or skips a match | P1 | Functionality | AF-2, AF-3, AF-9, QG-1, QG-2 |
-| TC-POLICY-01 — Disabled policy survives SONiC install | Marker file blocks the burn across a SONiC install | P1 | Customer Scenarios | AF-6, OF-2, OF-5, §2.3.1 |
-| TC-LOG-01 — Install syslog records OE result | Saved install logs contain the auto-flow events the install cases do not already assert | P1 | Logging & Debugability | §2.9 |
-| TC-ONIE-01 — ONIE install converges OE firmware | ONIE install applies the image OE and clears the marker | P2 | Installation/Setup/Upgrade | AF-2, §2.13 |
-| TC-ASIC-01 — Install burns once per ASIC | The oe-delta install log shows one OE burn per ASIC | P2 | Scale | AF-12, §1.7 |
-| TC-PLAT-01 — Non-CPO install ignores OE | Existing non-CPO install grows no OE row | P2 | Interoperability | AF-7 |
-| TC-PERF-01 — OE burn extends install reboot | Syncd-up times saved by the SONiC install stay within the HLD samples | P2 | Performance | §1.5 |
-| TC-FAIL-01 — Partial ASIC failure is logged | A partial burn is an error, not a silent success | P2 | Reliability | §1.7, §2.9 |
+| TC | What it proves (plain language) | Pri | Area | HLD § |
+|----|---------------------------------|-----|------|-------|
+| TC-PRE-01 — CPO suite skips cleanly | A non-CPO DUT skips the new checks. A CPO DUT with no OE_FW row fails | P0 | PRE fixture (module) | §2.13, AF-7, AF-10 |
+| TC-DELTA-01 — Differing firmware install converges | An install of two images with different firmware leaves ASIC and OE versions at the image | P1 | Functionality | AF-2, AF-3, AF-8, AF-9, AF-10, AF-12, §3.1 |
+| TC-SKIP-01 — Same-firmware flavor skips burn | A second flavor with the same firmware does not burn | P1 | Functionality | AF-3, §2.3.1, §3.1 item 2 |
+
+Area disposition, including areas with no standalone case:
+
+| Area | Disposition |
+|------|-------------|
+| 1 Functionality | TC-DELTA-01, TC-SKIP-01. TC-PRE-01 is the module skip gate, not a functionality case |
+| 2 Interoperability | No new case. The original non-CPO `test_deploy_and_upgrade` and `FW` row in `test_component_version_check` must pass (AF-7) |
+| 3 Reliability | No new case and no new timer. TC-DELTA-01 and TC-SKIP-01 pass only if the waits those paths already use return. `deploy_sonic` and `install_image_onie` both call `check_port_status_till_alive` with the default 300 tries and 2 seconds (600 seconds per SSH-down or SSH-up wait). ONIE also requires `SonicOnieCli.install_image` to return (`timeout=60`, `num_retry=10` on the install prompt). `upgrade_switch` calls `verify_dockers_are_up` (`tries=25`, `delay=10`) after the target image for both deploy types, and that call must return. The existing `sudo get_component_versions.py` call inside `test_component_version_check` must return; that is the about-5-second first-call allowance. The about-40-second and about-5-second reboot allowances sit inside the 600-second SSH waits |
+| 4 Performance | N/A. The quality guarantee marks performance N/A |
+| 5 Scale | N/A as a suite. One `mlxfwmanager` session per ASIC is a log check inside TC-DELTA-01 (AF-12). The quality guarantee assigns no Ver or QA mark to scale |
+| 6 Installation, Setup, Upgrade | N/A. The quality guarantee marks upgrade and downgrade N/A. SONiC and ONIE installs are area 1 |
+| 7 Logging and Debugability | N/A as a suite. The quality guarantee assigns no Ver or QA mark. TC-DELTA-01 and TC-SKIP-01 count `mlxfwmanager -u` burn lines in the log for that install path (pre-reboot console on sonic, post-boot syslog on ONIE) |
+| 8 Customer Scenarios | N/A. The quality guarantee names no customer setup |
+| Template 10 Scale | Same as area 5 |
+| Template 11 Logging | Same as area 7 |
+| Template 12 Security | N/A. No new API. Corrupt-MFA coverage stays in `test_secure_corrupt_fw` and is not this feature |
+| Longevity (template 9) | Omitted |
 
 ## Overview
 
-The install, reboot, and post-install health steps already exist. This plan adds the optical-engine result on top of those steps. Feature behavior is defined in the HLD.
+Canonical ngts. The feature is the boot-time auto upgrade of ASIC and vModule firmware inside an image install. Assertions are added to `ngts/scripts/sonic_deploy/test_deploy_and_upgrade.py` and to `test_component_version_check`. The push-gate fixture uses the same `deploy_image` and gets no new case.
 
 ## Scope
 
 ### In scope
 
-- SONiC-to-SONiC install via the existing `deploy_type='sonic'` path, or `install_sonic` plus cold reboot.
-- ONIE install via the existing `onie-nos-install` path.
-- `OE_FW` in `get_component_versions.py` after those installs.
-- Policy marker file created on the DUT, then left in place across a SONiC install.
-- ONIE clearing that file.
-- One OE burn per ASIC.
-- Non-CPO run of the same install flows.
-- Syncd-up timing against HLD §1.5.
-- Auto-flow syslog events from HLD §2.9 Table 1.
+- `--deploy_type sonic`: `sonic-installer install` plus reboot (`SonicGeneralCli.deploy_sonic`).
+- `--deploy_type onie`: `onie-nos-install` (`SonicGeneralCli.deploy_onie`).
+- After that deploy, `sudo get_component_versions.py` shows `FW` and `OE_FW`. `COMPILATION` is the image version in the form the device reports. `ACTUAL` is the running version.
+- `sudo mlnx-fw-manager --status` and `--dry-run` show the `OE` line from HLD §2.3.1, with the exit codes in that section.
+- A new install of another flavor of the tested image, for example PRC, whose ASIC and OE firmware match the installed image. The test must show that no flash write happened.
+- syncd is up after the existing deploy readiness check.
+- Existing install waits still complete. No new timer.
 
 ### Out of scope
 
-- `mlnx-fw-manager` as a test action, including `--auto-upgrade`, `--burn`, `--dry-run`, `--status`, and prompts. HLD §2.10. Kickoff exclusion.
-- Image unit tests in HLD §3.2.
-- Fast reboot. HLD §0.2.
-- Warm reboot until the platform supports it. HLD §1.6.
-- `config reload` as a firmware trigger. It does not burn.
-- GA `cpoutil` path. HLD §0.3.
-- ELS firmware, SAI, platform API, YANG, gNMI, and SONiC counters. HLD §2.5, §2.11.
-- Template area 12 (security / malformed input). HLD §4 and §2.7. No new network API and no SONiC counters. Scale and logging are in this plan.
-- Mid-burn power cut. Recovery is operator `--burn`, which this plan does not call.
-- SimX and KVM. HLD §2.13.
+- A new non-CPO test. The original deploy and `FW` check must pass.
+- Push-gate cases in `ngts/tests/push_build_tests/conftest.py`.
+- HLD §7 `--auto-upgrade` and `--burn`.
+- ELS / `cpoutil` / `sfputil` firmware update (HLD §0.2).
+- Warm reboot and fast reboot (HLD §1.6). The control-plane downtime sentence in §1.6 applies when warm boot exists.
+- Upgrade from 202605. HLD §2.3.1 says 202605 does not support a CPO platform. Non-CPO behavior stays on the original flow.
+- Injecting an unreadable `OE_FW` version. The quality guarantee does not include that branch. HLD unit tests cover the compare rule (AF-13).
+- A FW-control versus SW-control matrix. The quality guarantee has no such row. The deploy runs in the DUT's current mode (AF-4).
+- Partial-ASIC failure injection (`FirmwareUpgradePartialError`, HLD §1.7). The quality guarantee does not include it.
+- Keyword interaction pairs that do not share a resource with this feature: generic config updater (no CONFIG_DB, HLD §1.3), telemetry, gNMI, and SNMP (no northbound API, HLD §4.1), QoS, SRv6, decap, tunnel QoS remap, and packet trimming (no header rewrite), thermal control and SED password management (no shared platform daemon state; syncd only has to start), and transceiver (OE firmware is in ASIC flash, not a pluggable; ELS via CDB is HLD §0.2). Warm reboot and the NSWARCH ISSU page are already listed above.
+- Port-lifecycle practice. OE firmware is written once per ASIC in ASIC flash (AF-12). A port admin toggle does not program it.
+- Performance, scale, image upgrade/downgrade, syslog-as-a-suite, and customer scenarios. The quality guarantee marks them N/A or leaves Ver and QA unmarked.
+- The NSWARCH page "CPO FW Control Architecture" (ISSU / NVUE / ELS). The HLD cold-reboot path is authoritative.
+- HLD §2.9 syslog events other than the `mlxfwmanager -u` count. The quality guarantee assigns no Ver or QA mark to logging. Partial-burn ERROR injection is already out of scope.
+- HLD §5.1 and §5.2. Both say none. §5.3 points at the lower-layer commands already used above.
+- snappi / traffic-generator tests. This feature has no dataplane claim.
+- Pytest files. This document is the test plan only.
 
 ## References
 
-- HLD linked above, commit `e43e25e6c90b09972c11062ef372c0a127f5f125`.
-- `ngts/cli_wrappers/sonic/sonic_general_clis.py` `deploy_image`, called from `ngts/tests/push_build_tests/conftest.py`.
-- `ngts/cli_wrappers/sonic/sonic_onie_clis.py` `install_image`.
-- `tests/common/helpers/upgrade_helpers.py` `install_sonic`, `check_services`, `check_sonic_version`.
-- `tests/upgrade_path/test_upgrade_path.py` `test_upgrade_path`.
-- `ngts/tests/nightly/sanity_checker/test_sanity_checker.py` `get_component_versions.py`.
-- `tests/common/devices/sonic.py` `num_asics`.
+- HLD Rev 1.1, link above.
+- Quality guarantee workbook: Support auto firmware upgrade for vModule.
+- `ngts/scripts/sonic_deploy/test_deploy_and_upgrade.py`
+- `ngts/cli_wrappers/sonic/sonic_general_clis.py` (`deploy_sonic`, `deploy_onie`, `install_image`)
+- `ngts/cli_wrappers/sonic/sonic_onie_clis.py` (`onie-nos-install`)
+- `ngts/tests/nightly/sanity_checker/test_sanity_checker.py` (`test_component_version_check`)
+- `devts/infra/tools/validations/traffic_validations/port_check/port_checker.py` (`check_port_status_till_alive`, tries=300, delay=2)
 
 ## Testbed and topology
 
-Any physical DUT topology the existing install test already uses. Documentation only. No VS-only topology. No traffic generator.
+Canonical ngts DUT with the usual deploy testbed. Positive checks need a Chameleon6S / CPO switch. Non-CPO switches keep running the existing deploy and sanity checker; they do not run TC-DELTA-01 or TC-SKIP-01.
+
+No traffic generator. No extra hosts beyond the deploy setup.
 
 ## Prerequisites / setup
 
-- CPO positive cases: Chameleon6S or another CPO-capable SPC6. Skip the CPO cases otherwise.
-- Non-CPO case: one of SPC1–SPC5, BlueField, or SN2201.
-- Two images supplied by the run (the HLD does not name the URLs): one whose combined MFA changes only OE firmware, one with no firmware delta.
-- Images staged on the controller before the suite, so a case does not download during the measured window.
-- DUT shell as `admin`. Commands that write the marker use `sudo`.
+Feature readiness gate: TC-PRE-01 runs first. A non-CPO DUT skips TC-DELTA-01 and TC-SKIP-01, and that skip is not a suite failure. A CPO DUT with no `OE_FW` row fails the suite.
 
-### Feature readiness gate
+### Command validation system
 
-TC-PRE-01 runs once per module. If it skips, CPO cases skip. TC-PLAT-01 still runs on a non-CPO DUT.
+Steps run on the DUT shell as admin, unless the step says the ngts deploy host. `sudo` is required for `get_component_versions.py`, `mlnx-fw-manager`, `flint`, and `redis-cli` when admin is not root. Install commands run on the deploy host through `SonicGeneralCli`. The DUT must already answer SSH before TC-PRE-01. Image files and READMEs are on the deploy host. There is no CONFIG_DB key for this feature.
+
+Image pairs:
+
+| Pair | Used by | Firmware |
+|------|---------|----------|
+| Regression base and target | TC-DELTA-01 | Different, as the deploy job already passes them |
+| Tested image and another flavor, example PRC | TC-SKIP-01 | Same ASIC and OE firmware. The HLD does not name PRC; the flavor is the one the user supplied |
+
+Component observation inside TC-DELTA-01:
+
+| Component | When the two images differ in it | When they do not |
+|-----------|----------------------------------|------------------|
+| `FW` (ASIC) | `ACTUAL` equals the target image version after reboot | `ACTUAL` unchanged |
+| `OE_FW` | `ACTUAL` equals the translated MFA version (HLD §2.3.1: middle field divided by 2, last two digits) | `ACTUAL` unchanged |
+
+HLD §3.1 item 1 is the case where only `OE_FW` differs. The regression pair is whatever two images the deploy job uses, and the user stated those firmware versions differ. Each component is checked on its own. A burn that rewrites ASIC with the same version still leaves `FW` `ACTUAL` equal to that version.
 
 ## Module prerequisites
 
-| Step | Scope | Used by |
-|------|-------|---------|
-| TC-PRE-01 readiness gate | module | all CPO cases |
-| Stage both images on the controller | module | TC-SONIC-01, TC-POLICY-01, TC-ONIE-01 |
-| Each install row reads `OE_FW` immediately before it installs | function | TC-SONIC-01, TC-POLICY-01, TC-ONIE-01 |
-| Save that row's syslog and syncd-up seconds | function | TC-LOG-01, TC-ASIC-01, TC-PERF-01 read the TC-SONIC-01 saves. They do not install again |
-| Remove `/host/fw_auto_upgrade_disabled` after the case | function | TC-POLICY-01 |
+- Module: TC-PRE-01. Skip TC-DELTA-01 and TC-SKIP-01 when the DUT is not CPO.
+- The regression already runs `test_deploy_and_upgrade` before `test_sanity_checker.py`. TC-DELTA-01 does not install a third image.
+- TC-SKIP-01 is a separate install and is not part of that default pair.
 
 ## Test cases
 
-### Preconditions (mandatory)
+### Functionality
 
-DUT is reachable by the existing install harness. TC-PRE-01 has recorded syncd state and `show interfaces status`, unless the case is TC-PLAT-01. An install row does not reuse that version token. It runs `sudo get_component_versions.py` immediately before its own install and judges the result against that pre-state.
-
-### TC-PRE-01 — CPO install baseline is recorded
+**TC-PRE-01 — CPO suite skips cleanly**
 
 **Priority: P0**
 
-**Goal:** Record optical-engine firmware before any install in this suite.
+Objective: the new checks run only on a CPO DUT that can report `OE_FW`.
 
-**Steps:**
+Steps:
 
-1. On the DUT shell run `show version` and `sudo get_component_versions.py` (`ngts/tests/nightly/sanity_checker/test_sanity_checker.py`).
-2. Skip the CPO suite unless the platform is Chameleon6S or a CPO-capable SPC6. HLD §2.13. A non-CPO DUT runs TC-PLAT-01 only.
-3. Skip on SimX or KVM. HLD §2.13.
-4. Record the `OE_FW` line, `docker ps` (syncd), and `show interfaces status`.
+1. On the DUT shell, run `sudo get_component_versions.py`.
+2. Read the hwsku with `redis-cli -n 4 hget "DEVICE_METADATA|localhost" hwsku` (the same read as `get_sonic_hwsku` in `ngts/scripts/test_rpc_check_and_set_topology.py`). The image's own CPO check is `device_info.get_cpo_data()` (HLD §2.3.1). If that hwsku is not the Chameleon6S SKU in the testbed `platform_params.hwsku`, skip TC-DELTA-01 and TC-SKIP-01. That skip is not a failure. The existing non-CPO deploy and `FW` check continue as they do today.
+3. If the hwsku is the Chameleon6S SKU and the table has no `OE_FW` row, fail. Do not skip.
 
-**Pass:** The script prints an `OE_FW` row whose `COMPILATION` cell is `-` and whose `ACTUAL` cell is a non-empty version. `docker ps` shows syncd `Up`.
+Expected result: a CPO DUT shows an `OE_FW` row. A CPO DUT without that row fails. Any other DUT skips the new checks.
 
-**Cleanup:** None.
+Cleanup: none.
 
-### TC-SONIC-01 — SONiC install converges OE firmware
+---
 
-**Priority: P1**
-
-**Goal:** A SONiC-to-SONiC install leaves OE firmware at the image result.
-
-Run the no-delta row first, then the oe-delta row. Each row reads its own pre-state.
-
-| Row | Image | `OE_FW` `ACTUAL` after reboot | Syslog (HLD §2.9 Table 1) |
-|-----|-------|-------------------------------|---------------------------|
-| no-delta | Image whose MFA matches the pre-state (reinstall the running image) | Equal to this row's pre-state | `Component up to date` |
-| oe-delta | The other image, combined MFA changes only OE | Different from this row's pre-state | `Component upgrade started` and `Component upgrade completed` for `OE_FW` and for `ASIC_FW` |
-
-**Steps:**
-
-1. On the DUT shell run `sudo get_component_versions.py` and store `OE_FW` `ACTUAL` and `FW` `ACTUAL` as this row's pre-state.
-2. Install the row's image with `deploy_image(..., deploy_type='sonic')` (`ngts/cli_wrappers/sonic/sonic_general_clis.py`, invoked from `ngts/tests/push_build_tests/conftest.py`). Community alternate: `install_sonic(duthost, image_url, tbinfo)` then the cold reboot in `upgrade_test_helper` (`tests/common/helpers/upgrade_helpers.py`, `tests/upgrade_path/test_upgrade_path.py`).
-3. Record seconds from that reboot until `docker ps` shows syncd `Up`.
-4. Run `sudo get_component_versions.py`, `show version`, and `show interfaces status`.
-5. Copy `/var/log/syslog` and the syncd-up seconds. TC-LOG-01, TC-ASIC-01, and TC-PERF-01 read these copies.
-
-**Pass:** `show version` is the installed image (`check_sonic_version` on the community path). `OE_FW` `COMPILATION` is `-`. `ACTUAL` matches the row against this row's pre-state. `FW` `ACTUAL` equals this row's pre-state. `docker ps` shows syncd `Up`. Every port that was oper up in TC-PRE-01 is oper up. Syslog contains the row's event text. The oe-delta copy also contains `Component upgrade completed` naming `ASIC_FW` (same version rewritten, QG-1).
-
-**Cleanup:** None.
-
-### TC-POLICY-01 — Disabled policy survives SONiC install
+**TC-DELTA-01 — Differing firmware install converges**
 
 **Priority: P1**
 
-**Goal:** A pre-created policy file still suppresses OE burn after a SONiC install.
+Objective: after the regression install of two images with different firmware, ASIC and OE versions match the image, syncd is up, and the existing SSH wait still finishes.
 
-**Steps:**
+Parameter: `--deploy_type` is `sonic` or `onie`. Both are runs of `test_deploy_and_upgrade`. `sonic` uses `sudo sonic-installer install <bin> -y` and `sudo reboot`. `onie` uses `onie-nos-install`.
 
-1. On the DUT shell run `sudo get_component_versions.py` and store `OE_FW` `ACTUAL` as this case's pre-state.
-2. Run `sudo touch /host/fw_auto_upgrade_disabled` and `sudo chmod 0644 /host/fw_auto_upgrade_disabled`. Do not call `mlnx-fw-manager`. HLD §2.3.1.
-3. Install the image whose MFA differs from that pre-state, using the same SONiC-to-SONiC entry as TC-SONIC-01.
-4. After reboot run `test -f /host/fw_auto_upgrade_disabled`, `sudo get_component_versions.py`, and `docker ps`.
-5. Keep `/var/log/syslog` with this case's record. TC-LOG-01 does not read it; this case already checks the policy warning.
+Steps:
 
-**Pass:** `test -f` succeeds. `OE_FW` `ACTUAL` equals this case's pre-state, so the running firmware stays different from the installed image. Syslog contains `Auto firmware upgrade skipped — policy disabled`. `docker ps` shows syncd `Up`. This is the intentional mismatch AF-9 describes.
+1. Run the existing `test_deploy_and_upgrade` with the regression base and target images. Do not add a push-gate case.
+2. Pass only if the waits that path already uses return. Do not add a timer. For `--deploy_type sonic`, `deploy_sonic` calls `check_port_status_till_alive` (default 300 tries, 2 seconds) for SSH down and SSH up. For `--deploy_type onie`, `install_image_onie` uses that same helper for SSH down and SSH up, and `SonicOnieCli.install_image` must return within `timeout=60` and `num_retry=10`.
+3. On the DUT, run `sudo get_component_versions.py`. The existing `test_component_version_check` invocation must return. That covers the about-5-second first-call allowance. Do not add a timer.
+4. On the DUT, run `sudo mlnx-fw-manager --status` and `sudo mlnx-fw-manager --dry-run`.
+5. Confirm syncd is running with `verify_dockers_are_up` (tries=25, delay=10). `upgrade_switch` already calls this after the target image for both deploy types.
+6. Count burn lines, meaning `mlxfwmanager -u` (HLD §2.6). Query lines (`--query-format`, `--list-content`) do not count. On `--deploy_type sonic` the burn is in `pre_reboot_hook` before shutdown (HLD §2.1 row 1, §3.2.1 item 11): count those lines in the reboot console of the session that runs `sudo reboot`, or in `/var/log/syslog` copied before SSH drops. Do not use the syslog taken after SSH returns; that file is the new image's boot-time run, which is already up to date if the hook burned. On `--deploy_type onie` the burn is the boot-time service (HLD §2.1 row 2): count `mlxfwmanager -u` in post-boot syslog (HLD §3.2.1 item 9). Expect one burn per ASIC that burned (AF-12, §2.3.2). Do not use LogAnalyzer for this count. `analyze()` in `tests/common/plugins/loganalyzer/loganalyzer.py` reads live DUT `/var/log` after SSH returns, which on the sonic path is the new image's boot log. On ONIE, `onie-nos-install` wipes the partition (`sonic_onie_clis.py`), so a start marker written before the install does not bound the new syslog.
 
-**Cleanup:** `sudo rm -f /host/fw_auto_upgrade_disabled`.
+Expected result:
 
-### TC-LOG-01 — Install syslog records OE result
+- `OE_FW` `COMPILATION` is the image MFA version in device form. `ACTUAL` is the running bank. An unreadable version would show `N/A`; this pair is readable.
+- `FW` `ACTUAL` matches the target image ASIC version when that version differs, and is unchanged when it does not.
+- `--status` exits 0 and prints `OE: up to date (<version>)` once the running bank holds the image (HLD §2.3.1). Exit is non-zero only on a remaining delta.
+- `--dry-run` prints `Firmware is up to date.` and `ASIC N OE: up to date (<version>)`, and exits 0. A remaining delta exits 10.
+- syncd is up.
+- The SSH waits returned inside 300 attempts.
+- One `mlxfwmanager -u` burn per ASIC that differed, in the log window for that deploy type.
+
+Cleanup: the DUT stays on the target image, which is the regression's normal end state.
+
+---
+
+**TC-SKIP-01 — Same-firmware flavor skips burn**
 
 **Priority: P1**
 
-**Goal:** The install logs name the auto-flow events the install cases do not already require.
+Objective: installing another flavor with the same firmware does not burn flash.
 
-**Steps:**
+Steps:
 
-1. Read the syslog copy saved by the oe-delta row of TC-SONIC-01. No extra install.
-2. Search for `Firmware manager started` and `Firmware manager finished`, and for a per-ASIC line that shows current and available versions (HLD §2.9 Table 1).
+1. Start from a DUT already on the image under test. Record `sudo get_component_versions.py` (`FW` and `OE_FW` `ACTUAL`).
+2. Before installing, compare firmware. Parse `FW` from both image READMEs the way `parse_readme_versions` does in `test_sanity_checker.py`. The two `FW` values must be equal. For the installed image, `OE_FW` comes from the MFA already on the DUT at `/etc/mlnx/fw-<asic>.mfa` (HLD §2.6.1), queried with `mlxfwmanager -i <mfa> --psid <psid> -extract --extract-file <fwpkg>` then `flint -i <fwpkg> --component_type VMOD q` (HLD §1.5). The flavor installer still needs that MFA pulled out of the SONiC bin, which is `[TBD — mechanism unverified; requires DUT confirmation]`. If the versions differ, or that extract is not available, fail the precondition. Do not install, and do not call that a product failure.
+3. Install the other flavor. The example is PRC. Use the same `deploy_image` path (`deploy_type` `sonic` or `onie`).
+4. Capture the burn log for this install with the same window as TC-DELTA-01 step 6: reboot console or pre-drop syslog on sonic, post-boot syslog on ONIE.
+5. After SSH is back, run `sudo get_component_versions.py`, `sudo mlnx-fw-manager --status`, and `sudo mlnx-fw-manager --dry-run`.
+6. The SSH waits are the same `check_port_status_till_alive` defaults as TC-DELTA-01. They must return. `verify_dockers_are_up` must return.
 
-**Pass:** The copy contains the literals `Firmware manager started` and `Firmware manager finished`. It also contains the HLD §2.9 Table 1 event for per-ASIC per-component versions, with a current value and an available value on that line. Do not re-check `Component upgrade completed` or the policy-disabled warning here; TC-SONIC-01 and TC-POLICY-01 already require those.
+Expected result:
 
-**Cleanup:** None.
+- `ACTUAL` for `FW` and `OE_FW` is unchanged. That alone is not a pass.
+- `--status` exits 0 and shows `OE: up to date (<version>)`.
+- `--dry-run` exits 0 and shows `Firmware is up to date.`
+- The burn log for this install contains zero `mlxfwmanager -u` lines (HLD §3.1 item 2). One or more is a failure. Query-only `mlxfwmanager` lines do not count.
+- `verify_dockers_are_up` returns, so syncd is up.
 
-### TC-ONIE-01 — ONIE install converges OE firmware
-
-**Priority: P2**
-
-**Goal:** ONIE install activates the image OE firmware.
-
-| Row | Marker before install | Marker after boot | `OE_FW` `ACTUAL` |
-|-----|----------------------|-------------------|------------------|
-| clear | Absent | Absent | Image running-bank version |
-| wipe | File created as in TC-POLICY-01 | Absent | Image running-bank version |
-
-**Steps:**
-
-1. Run `sudo get_component_versions.py` and store `OE_FW` `ACTUAL` as this row's pre-state.
-2. For the wipe row only, create `/host/fw_auto_upgrade_disabled` the same way as TC-POLICY-01.
-3. Install the image whose MFA differs from that pre-state with `SonicOnieCli.install_image(image_path)`, which runs `onie-nos-install` (`ngts/cli_wrappers/sonic/sonic_onie_clis.py`).
-4. After boot run `test -f /host/fw_auto_upgrade_disabled`, `sudo get_component_versions.py`, `docker ps`, and `show interfaces status`.
-
-**Pass:** `test -f` fails on both rows. `OE_FW` `COMPILATION` is `-` and `ACTUAL` differs from this row's pre-state. `docker ps` shows syncd `Up`. Ports that were oper up in TC-PRE-01 are oper up.
-
-**Cleanup:** None. ONIE already removed the marker.
-
-### TC-ASIC-01 — Install burns once per ASIC
-
-**Priority: P2**
-
-**Goal:** A multi-ASIC install burns optical-engine firmware once per ASIC.
-
-**Steps:**
-
-1. Skip when `num_asics` is 1 (`tests/common/devices/sonic.py`).
-2. Read the syslog copy saved by the oe-delta row of TC-SONIC-01. Do not install again.
-3. Count lines that contain both `Component upgrade completed` and `OE_FW` (HLD §2.9 Table 1).
-
-**Pass:** The copy does not contain `OE_FW left non-uniform across ASICs` (HLD §2.9 Table 3). Whether one `Component upgrade completed` line exists per ASIC is `[TBD — per-ASIC log line shape requires DUT confirmation]`. Do not treat a line count as a failure until a DUT sample shows that shape. The count must not be compared to the CPO front-panel port count.
-
-**Cleanup:** None.
-
-### TC-PLAT-01 — Non-CPO install ignores OE
-
-**Priority: P2**
-
-**Goal:** A non-CPO install does not add an OE firmware row.
-
-**Steps:**
-
-1. Skip unless the DUT is SPC1–SPC5, BlueField, or SN2201.
-2. Run that platform's existing SONiC-to-SONiC or ONIE install (`deploy_type` `sonic` or `onie`).
-3. Run `sudo get_component_versions.py` and `docker ps`.
-
-**Pass:** `OE_FW` `ACTUAL` is `N/A` (HLD §3.2). Syslog has no `Component upgrade completed` line naming `OE_FW`. `docker ps` shows syncd `Up`. The existing post-install checks of that flow pass.
-
-**Cleanup:** None.
-
-### TC-PERF-01 — OE burn extends install reboot
-
-**Priority: P2**
-
-**Goal:** Install reboot reaches syncd inside the HLD's published samples.
-
-**Steps:**
-
-1. Skip unless the DUT is 1-ASIC Chameleon6S and TC-SONIC-01 saved both intervals.
-2. Read the syncd-up seconds saved by the no-delta row and the oe-delta row. Do not install again. Do not add ping or a traffic generator.
-
-**Pass:** No-delta interval ≤ 89 seconds. OE-delta interval ≤ 209 seconds. Both numbers are the HLD §1.5 reboot-to-ping samples for 1-ASIC Chameleon6S, applied here to syncd-up.
-
-**Cleanup:** None.
-
-### TC-FAIL-01 — Partial ASIC failure is logged
-
-**Priority: P2**
-
-**Goal:** A burn that fails on one ASIC is logged as an error.
-
-**Steps:**
-
-1. Skip until a DUT method exists. Injection is `[TBD — failure injection method requires DUT confirmation]`.
-2. After the install reboot, run `sudo get_component_versions.py` and read syslog.
-
-**Pass:** Syslog contains `Partial ASIC burn failure` at ERROR (HLD §2.9 Table 1, §1.7). The run is not reported as every component up to date.
-
-**Cleanup:** Restore the DUT with the lab image using the same SONiC install path. Do not call `mlnx-fw-manager --burn`.
+Cleanup: leave the DUT on the flavor that was just installed, or restore the regression target image with the existing deploy path if a later test requires it.
 
 ## Conventions
 
-- Commands run in the DUT shell over the existing install-test SSH session, user `admin`.
-- Version oracle: `sudo get_component_versions.py`.
-- Service oracle: `docker ps` shows syncd `Up`. HLD manual plan item 12.
-- Port oracle: `show interfaces status`. Compare with TC-PRE-01. No new traffic.
-- Policy oracle: `test -f /host/fw_auto_upgrade_disabled`.
-- Log oracle: event strings in HLD §2.9 Table 1, searched in `/var/log/syslog`.
-- Install entry points are the functions cited in References. This plan does not add a firmware-manager command.
+Commands run on the DUT as admin, with `sudo` where shown. Install commands run from the ngts deploy host through `SonicGeneralCli`. Pass and fail are the expected strings and exit codes above. There is no CONFIG_DB key to clear.
 
 ## Known limitations
 
-- Warm reboot is not supported yet. HLD §1.6. Fast reboot is out of scope. HLD §0.2.
-- `config reload` does not burn firmware.
-- ONIE `onie-nos-install` and `onie-uninstall` reformat `/host` and clear the policy file. ONIE self-update does not. HLD §2.13.
-- `COMPILATION` for `OE_FW` is `-`. Quality-guarantee item 4a disagrees; AF-10 and §2.6.1 are authoritative.
-- Version compare ignores the middle field. HLD open question (`95.10.0752` vs `95.2020.0752`).
-- Image URLs are not in the HLD. The run supplies the pair (the HLD does not name the URLs).
-- These Table 1 events are not injected: `OE_FW` absent from the MFA, `OE_FW` unreadable or corrupt, and version-query retry or failure. The image pair is a valid combined MFA, and no install-path injection is specified.
-- AF-4 (firmware control and software control behave the same) is not a separate case. The install path does not select that mode.
-- Single-ASIC DUT skips TC-ASIC-01 (no chassis is named).
-- Partial-burn injection is not specified (no injection method is specified). TC-FAIL-01 stays skipped until a method is confirmed.
-- Bank repair after a failed burn is operator `--burn`, which is out of scope.
-- SimX and KVM skip. HLD §2.13.
-- Timing caps are the HLD ping samples applied to syncd-up, because the test environment was not specified and this plan does not add ping.
-- Manual-plan item 18 disagrees with §2.10.3. Direct `--burn` is out of scope, so the plan does not pick a winner in a case.
-- Non-CPO `get_component_versions.py` prints `OE_FW` `ACTUAL` as `N/A` (HLD §3.2). Manual plan item 5 says the manager prints no `OE_FW` row. This plan calls the component script, so the pass string is `N/A`.
-- No platform API. HLD §2.5. Nothing to map under `tests/common/helpers/platform_api/`.
-- Keyword joins to QoS, packet trimming, tunnel QoS, WRED/ECN, SRv6, telemetry, gNMI, SNMP, transceiver, thermal control, SED password management, generic config updater, and platform tests do not share a header, CONFIG_DB table, or management API with this feature.
-- CLI rejection, enable/disable churn, and daemon CONFIG_DB replay are unit-tested or do not apply: there is no CONFIG_DB schema (HLD §2.11), and the plan does not call `mlnx-fw-manager`.
-- Port admin toggle does not apply. OE firmware is ASIC flash, not a port object (AF-12).
+- The device may report a different OE middle field on a staged bank (`95.10` running, `95.5` staged, HLD §6). A check between burn and ASIC reset can say `upgrade needed` until the firmware workaround matches a staged bank. TC-DELTA-01 samples `--status` after the reboot that activates the image, when the running bank should match.
+- Version translation (middle field divided by 2) is a temporary workaround (HLD §2.3.1).
+- SimX / KVM is skipped by `_exit_if_qemu` (HLD §2.13).
+- The NSWARCH firmware-control page describes ISSU and NVUE. This plan follows the HLD cold-reboot auto path.
+- PRC is an example flavor. The HLD does not name it.
 
 ## Open / action items
 
-- Name the oe-delta and no-delta image URLs. The HLD does not.
-- Name a partial-ASIC failure injection that does not call `mlnx-fw-manager`.
-- Name the multi-ASIC CPO chassis for TC-ASIC-01.
-- Confirm whether syncd-up on 1-ASIC Chameleon6S is inside 89s and 209s, or whether those samples must stay tied to ping.
-- HLD conflict: quality-guarantee item 4a vs AF-10. This plan follows AF-10.
+- Confirm which same-firmware flavor the lab will use for TC-SKIP-01. PRC is the example from the user. The HLD does not name it.
+- Confirm how the test host extracts the combined MFA from a SONiC installer before TC-SKIP-01. The OE compare command is the HLD query. The unpack step is not an existing ngts helper.
+- HLD §1.5 sample reboot-to-ping on Chameleon is 209 seconds with a burn and 89 seconds without. The quality guarantee says about 40 seconds and about 5 seconds of added delay. This plan does not measure those samples. It only requires the existing waits to return. The 600-second SSH wait covers both figures.
+- Confirm the regression's `--deploy_type`. Both `sonic` and `onie` are in scope as runs of the same test. A job that passes only one of them covers only that install path.
+- Before TC-DELTA-01, compare the two images the way TC-SKIP-01 compares `FW` and `OE_FW`. Fail the precondition unless at least one component differs, and set the `mlxfwmanager -u` count from that delta. Recorded from the stage 6 review. The steps above were not changed after that review.
+- Name the PSID read `flint -d <pci> q` (HLD §2.3.1) before the MFA extract on `/etc/mlnx/fw-<asic>.mfa`. The flavor-installer unpack stays the existing TBD.
+- HLD §6 item 3: `flint -d <pci> --vmod --downstream_device_ids 0 q` can return the ASIC image or fail until a fixed MFT. An unknown `OE_FW` read on that lab image is an environment block, not a product miss.
+- TC-SKIP-01 dry-run currently requires `Firmware is up to date.` TC-DELTA-01 also requires `ASIC N OE: up to date (<version>)`. Use that second line on the skip case as well when the test is written.
 
 ## Future automation
 
-| TC | Proposed test | Existing code to call |
-|----|---------------|------------------------|
-| TC-PRE-01 — CPO install baseline is recorded | `test_cpo_install_baseline_recorded` | `get_component_versions.py` as in `test_sanity_checker.py` |
-| TC-SONIC-01 — SONiC install converges OE firmware | `test_sonic_install_converges_oe_firmware` | `deploy_image(deploy_type='sonic')` or `install_sonic` |
-| TC-POLICY-01 — Disabled policy survives SONiC install | `test_disabled_policy_survives_sonic_install` | same install helper, plus the marker file |
-| TC-LOG-01 — Install syslog records OE result | `test_install_syslog_records_oe_result` | syslog scan patterned on `test_log_analyzer_errors_during_deploy_sonic.py` |
-| TC-ONIE-01 — ONIE install converges OE firmware | `test_onie_install_converges_oe_firmware` | `SonicOnieCli.install_image` |
-| TC-ASIC-01 — Install burns once per ASIC | `test_install_burns_once_per_asic` | `num_asics` plus the SONiC install helper |
-| TC-PLAT-01 — Non-CPO install ignores OE | `test_non_cpo_install_ignores_oe` | existing `deploy_type` `sonic` or `onie` |
-| TC-PERF-01 — OE burn extends install reboot | `test_oe_burn_extends_install_reboot` | timing approach of `test_startup_time_degradation` |
-| TC-FAIL-01 — Partial ASIC failure is logged | `test_partial_asic_failure_logged` | no helper until a failure-injection method is named |
+| TC | Pytest |
+|----|--------|
+| TC-PRE-01 — CPO suite skips cleanly | extend `test_component_version_check`: skip the new OE checks when the platform is not CPO; fail when it is CPO and `OE_FW` is absent |
+| TC-DELTA-01 — Differing firmware install converges | extend `test_deploy_and_upgrade` and `test_component_version_check` |
+| TC-SKIP-01 — Same-firmware flavor skips burn | `test_cpo_same_firmware_flavor_skips_burn` |
 
-## Unmapped pytest
-
-These tests install or time a reboot and do not assert `OE_FW`. They stay the baseline; they are not new TCs:
-
-- `test_upgrade_path`, `test_double_upgrade_path`, `test_upgrade_path_t2`, `test_upgrade_path_t2_delayed`
-- `test_deploy_sonic_image`
-- `test_startup_time_degradation`
-- `test_check_errors_in_log_during_deploy_sonic_image`
-- `test_validate_config_db_json_during_upgrade`
-
-No pytest in this repo asserts CPO `OE_FW` after an install.
-
-## Unmapped helpers
-
-No OE firmware function exists under `tests/common/helpers/platform_api/`. HLD §2.5 says the platform API is unchanged.
+`test_secure_corrupt_fw` and `test_startup_time_degradation` have no row. They are not this feature.
 
 ## Edge-case checklist
 
-| Category | Decision |
-|----------|----------|
-| Absent policy file | Covered by TC-SONIC-01 and TC-ONIE-01 clear row |
-| Policy file present | Covered by TC-POLICY-01 and TC-ONIE-01 wipe row |
-| No-op / versions already match | TC-SONIC-01 no-delta row |
-| Scale / one ASIC vs many | TC-ASIC-01; single-ASIC skip in Known limitations |
-| Partial failure | TC-FAIL-01, injection TBD |
-| All affected entities | One `OE_FW` ACTUAL; non-uniform warning must be absent |
-| Persistence across SONiC install | TC-POLICY-01 |
-| Persistence across ONIE | TC-ONIE-01 wipe row |
-| Boundary CLI values | Out of scope. Direct CLI is excluded and unit-tested (HLD §3.2) |
-| Malformed packets | N/A. No data plane |
-| Port admin toggle | Waived. Not a port feature (AF-12) |
-| Daemon CONFIG_DB replay | Waived. No CONFIG_DB (HLD §2.11). Syncd start is a pass check |
+| Category | Disposition |
+|----------|-------------|
+| Boundary values | Out of scope. No configuration (HLD §1.3) |
+| Absent config | Out of scope. No knob |
+| Churn / toggle | Out of scope. No enable flag in this phase (HLD §7 deferred) |
+| Ordering | Covered. Pre-reboot install path and boot-before-syncd path are the two `--deploy_type` values |
+| Scale | Out of scope as a suite. One burn per ASIC is a log check in TC-DELTA-01 |
+| No-op | TC-SKIP-01 |
+| Persistence across config reload | Out of scope. No CONFIG_DB |
+| Malformed input | Out of scope. No packet path. Corrupt MFA stays in `test_secure_corrupt_fw` |
+| Recovery / partial failure | Out of scope. Quality guarantee does not include `FirmwareUpgradePartialError` |
+| All ASICs | TC-DELTA-01 checks one burn session per ASIC present on the DUT |
 
 ## Reboot scope
 
-| Reboot | Decision | HLD |
-|--------|----------|-----|
-| Cold reboot after SONiC install | In scope. It is the install path | AF-2, §2.3 |
-| Cold reboot after ONIE install | In scope | §2.13 |
-| Config reload | Out of scope. Does not burn | §2.11 |
-| Fast reboot | Out of scope | §0.2 |
-| Warm reboot | Out of scope until supported | §1.6 |
-| syncd / container restart as a trigger | Out of scope. Syncd must start after install; that is a pass check, not a separate reboot case | AF-9 |
-
-## Firmware checklist
-
-| Check | Where |
-|-------|-------|
-| Install vs field update | Install only. Field `--burn` is out of scope |
-| Flavor | Combined MFA that changes only OE, and a no-delta image |
-| Post-upgrade power cycle | The reboot the install flow already performs |
-| API rollback | No platform API. Cleanup is another install, not `--burn` |
-
-## Sibling plans
-
-`docs/testplan/nvidia-cpo-fw-upgrade/` has no earlier plan. This test plan is the first file in that directory's design set.
-
-## Execution budget
-
-| Tier | Cases | Estimate |
-|------|-------|----------|
-| P0 | TC-PRE-01 | 2 min. No install |
-| P1 | TC-SONIC-01 (two local images), TC-POLICY-01, TC-LOG-01 | 25 min. Images already on the controller. Each install reboot is the HLD sample, not a download |
-| P2 | TC-ONIE-01, TC-ASIC-01, TC-PLAT-01, TC-PERF-01, TC-FAIL-01 | Weekly. ONIE and the non-CPO install are the extra reboots. TC-ASIC-01 and TC-PERF-01 only read TC-SONIC-01 saves. TC-FAIL-01 adds none until injection exists |
-
-P0 stays under 10 minutes. P0+P1 stays under 30 minutes when images are local. The weekly total exceeds 60 minutes because the feature runs only as part of an install reboot. There is no shorter stimulus.
+| Reboot | Disposition |
+|--------|-------------|
+| Cold reboot that follows sonic-installer or ONIE install | In scope. It is the install path |
+| `config reload` | Out of scope. No configuration |
+| Warm reboot | Out of scope until the platform supports it (HLD §1.6) |
+| Fast reboot | Out of scope (HLD §0.2) |
+| syncd restart as a config restore | Out of scope. The in-scope check is that syncd is up after install (AF-9) |
